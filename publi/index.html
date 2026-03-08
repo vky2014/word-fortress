@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover"/>
+<meta name="theme-color" content="#1a1410"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="description" content="Word Fortress — Medieval Vocabulary Tower Defense. Build towers, learn words, defend the realm!"/>
+<title>Word Fortress</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏰</text></svg>"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet"/>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body,#root{width:100%;height:100%;overflow:hidden;background:#1a1410;color:#f5e6c8}
+body{-webkit-user-select:none;user-select:none;overscroll-behavior:none;font-family:'Cinzel',serif}
+button{outline:none;-webkit-tap-highlight-color:transparent;font-family:'Cinzel',serif}
+#root{padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);
+  padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}
+@keyframes shimmer{0%{background-position:-200% center}100%{background-position:200% center}}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-4px) rotate(-1deg)}75%{transform:translateX(4px) rotate(1deg)}}
+@keyframes particle{0%{transform:translate(0,0) scale(1);opacity:1}100%{transform:translate(var(--tx),var(--ty)) scale(0);opacity:0}}
+@keyframes floatUp{0%{opacity:1;transform:translateY(0)}100%{opacity:0;transform:translateY(-30px)}}
+@keyframes pulse{0%{transform:scale(1)}50%{transform:scale(1.25)}100%{transform:scale(1)}}
+@keyframes bossWarn{0%,100%{opacity:.6}50%{opacity:1}}
+@keyframes projFly{0%{opacity:1;transform:translate(0,0) scale(1.3)}50%{opacity:1;transform:translate(calc(var(--dx)*.6),calc(var(--dy)*.6)) scale(1.1)}100%{opacity:.3;transform:translate(var(--dx),var(--dy)) scale(.5)}}
+@keyframes fadeIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+@keyframes flagPop{0%{transform:scale(1)}50%{transform:scale(1.4)}100%{transform:scale(1)}}
+.scrollable{overflow-y:auto;-webkit-overflow-scrolling:touch}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<script type="text/babel">
+const {useState,useEffect,useRef,useCallback} = React;
+
+// ── localStorage-backed storage that mimics window.storage ──
+const storage = {
+  async get(k){try{const v=localStorage.getItem(k);return v!==null?{key:k,value:v}:null}catch{return null}},
+  async set(k,v){try{localStorage.setItem(k,String(v));return{key:k,value:v}}catch{return null}},
+  async delete(k){try{localStorage.removeItem(k);return{key:k,deleted:true}}catch{return null}},
+};
+window.storage = storage;
+
+const SK="wf:scores", STK="wf:study";
+const T={bg:"#1a1410",primary:"#d4a340",accent:"#c0392b",accent2:"#2e86c1",text:"#f5e6c8",textDim:"#a08c6a",
+  cardBg:"#2a2018",pathBg:"#3d3020",cellBg:"#221c14",cellHover:"rgba(212,163,64,.15)",
+  green:"#27ae60",red:"#c0392b",blue:"#3498db",purple:"#8e44ad"};
+
+const RARITY={
+  common:{label:"Common",color:"#a0a0a0",goldMul:1,scoreMul:1,badge:"⬜"},
+  uncommon:{label:"Uncommon",color:"#2ecc71",goldMul:1.3,scoreMul:2,badge:"🟩"},
+  rare:{label:"Rare",color:"#3498db",goldMul:1.7,scoreMul:3,badge:"🟦"},
+  epic:{label:"Epic",color:"#9b59b6",goldMul:2.2,scoreMul:5,badge:"🟪"},
+  legendary:{label:"Legendary",color:"#f39c12",goldMul:3,scoreMul:8,badge:"🟨"},
+};
+
+const VOCAB={
+  1:[
+    {word:"Benevolent",def:"Kind and well-meaning",wrong:["Hostile and cruel","Shy and withdrawn","Sly and cunning"],rarity:"common",example:"The benevolent king donated food to every village in the realm."},
+    {word:"Candid",def:"Honest and direct",wrong:["Sneaky and sly","Quiet and shy","Vague and unclear"],rarity:"common",example:"She gave a candid review of the book, praising its strengths and noting its flaws."},
+    {word:"Diligent",def:"Hardworking and careful",wrong:["Lazy and careless","Bold and reckless","Calm and relaxed"],rarity:"common",example:"The diligent student reviewed her notes every evening before the exam."},
+    {word:"Eloquent",def:"Fluent and persuasive",wrong:["Clumsy with words","Dull and boring","Quiet and reserved"],rarity:"uncommon",example:"His eloquent speech moved the entire audience to tears."},
+    {word:"Fervent",def:"Intensely passionate",wrong:["Cold and detached","Mildly interested","Bored and weary"],rarity:"uncommon",example:"She was a fervent supporter of the school's recycling program."},
+    {word:"Gregarious",def:"Sociable and outgoing",wrong:["Shy and reclusive","Angry and hostile","Quiet and timid"],rarity:"uncommon",example:"The gregarious puppy greeted every visitor with tail wags and licks."},
+    {word:"Hinder",def:"To block or delay",wrong:["To help or assist","To speed things up","To praise openly"],rarity:"common",example:"The fallen tree hindered traffic on the main road for hours."},
+    {word:"Impartial",def:"Fair and unbiased",wrong:["Unfair and biased","Selfish and greedy","Corrupt and shady"],rarity:"common",example:"A good judge must remain impartial throughout the trial."},
+    {word:"Jubilant",def:"Joyful and triumphant",wrong:["Gloomy and sad","Bored and blank","Scared and anxious"],rarity:"common",example:"The team was jubilant after winning the championship game."},
+    {word:"Keen",def:"Eager and enthusiastic",wrong:["Bored and reluctant","Dull and sluggish","Angry and hostile"],rarity:"common",example:"She has a keen interest in marine biology and ocean conservation."},
+  ],
+  2:[
+    {word:"Meticulous",def:"Extremely detail-oriented",wrong:["Sloppy and rushed","Bold and reckless","Calm and carefree"],rarity:"uncommon",example:"The meticulous artist spent weeks perfecting every brushstroke."},
+    {word:"Nonchalant",def:"Casually unconcerned",wrong:["Deeply anxious","Wildly excited","Intensely focused"],rarity:"uncommon",example:"He gave a nonchalant shrug, as if the pop quiz didn't bother him at all."},
+    {word:"Ominous",def:"Threatening or menacing",wrong:["Cheerful and bright","Trivial and minor","Warm and inviting"],rarity:"uncommon",example:"Dark, ominous clouds gathered over the valley before the storm."},
+    {word:"Pragmatic",def:"Practical and realistic",wrong:["Dreamy and fanciful","Rigid and stubborn","Wild and reckless"],rarity:"uncommon",example:"Her pragmatic approach to the project kept the team on schedule and under budget."},
+    {word:"Resilient",def:"Quick to recover",wrong:["Fragile and brittle","Stiff and rigid","Slow and sluggish"],rarity:"common",example:"The resilient community rebuilt their homes within months of the hurricane."},
+    {word:"Skeptical",def:"Doubtful and questioning",wrong:["Trusting and naive","Eager and willing","Loyal and devoted"],rarity:"common",example:"Scientists are naturally skeptical and require evidence before accepting claims."},
+    {word:"Tenacious",def:"Persistent and determined",wrong:["Weak and yielding","Bored and apathetic","Fickle and flaky"],rarity:"uncommon",example:"The tenacious climber refused to quit despite the harsh weather."},
+    {word:"Unscrupulous",def:"Lacking moral principles",wrong:["Honest and ethical","Noble and virtuous","Shy and humble"],rarity:"rare",example:"The unscrupulous merchant sold counterfeit goods to unsuspecting customers."},
+    {word:"Vindictive",def:"Seeking revenge",wrong:["Quick to forgive","Gentle and merciful","Kind and gracious"],rarity:"rare",example:"The vindictive villain spent years plotting revenge against the hero."},
+    {word:"Wary",def:"Cautious about danger",wrong:["Reckless and bold","Blissfully unaware","Trusting and open"],rarity:"common",example:"Hikers should be wary of slippery trails after heavy rain."},
+  ],
+  3:[
+    {word:"Acquiesce",def:"To reluctantly accept",wrong:["To fiercely resist","To loudly protest","To boldly defy"],rarity:"rare",example:"After a long debate, she finally acquiesced to the group's decision."},
+    {word:"Belligerent",def:"Hostile and aggressive",wrong:["Peaceful and calm","Tactful and polite","Meek and yielding"],rarity:"rare",example:"The belligerent nations refused to negotiate a ceasefire."},
+    {word:"Circumspect",def:"Cautious and careful",wrong:["Reckless and brash","Hasty and impulsive","Brazen and bold"],rarity:"rare",example:"A circumspect leader considers all risks before making a major decision."},
+    {word:"Delineate",def:"To describe precisely",wrong:["To deliberately blur","To completely ignore","To wildly distort"],rarity:"rare",example:"The architect delineated the floor plan with exact measurements."},
+    {word:"Ephemeral",def:"Short-lived and fleeting",wrong:["Lasting and permanent","Strong and enduring","Deep and rooted"],rarity:"rare",example:"The beauty of cherry blossoms is ephemeral, lasting only a week or two."},
+    {word:"Fastidious",def:"Fussy about accuracy",wrong:["Careless and messy","Lazy and negligent","Rough and sloppy"],rarity:"rare",example:"The fastidious editor caught every misplaced comma in the manuscript."},
+    {word:"Garrulous",def:"Excessively talkative",wrong:["Silent and reserved","Brief and concise","Guarded and quiet"],rarity:"epic",example:"My garrulous uncle can talk for an hour without pausing for breath."},
+    {word:"Hackneyed",def:"Overused and unoriginal",wrong:["Fresh and inventive","Bold and striking","Novel and unique"],rarity:"epic",example:"The essay was full of hackneyed phrases like 'at the end of the day.'"},
+    {word:"Impervious",def:"Impossible to affect",wrong:["Easily influenced","Highly susceptible","Open and exposed"],rarity:"rare",example:"The knight's enchanted armor was impervious to dragon fire."},
+    {word:"Juxtapose",def:"To place side by side",wrong:["To pull far apart","To completely isolate","To randomly scatter"],rarity:"epic",example:"The museum juxtaposed ancient sculptures with modern art to highlight contrasts."},
+  ],
+  4:[
+    {word:"Laconic",def:"Using very few words",wrong:["Wordy and rambling","Loud and dramatic","Chatty and verbose"],rarity:"epic",example:"The laconic cowboy answered every question with a single nod or grunt."},
+    {word:"Magnanimous",def:"Generous toward rivals",wrong:["Petty and spiteful","Bitter and resentful","Cold and vengeful"],rarity:"epic",example:"The magnanimous winner congratulated her opponent on a well-fought match."},
+    {word:"Obsequious",def:"Excessively flattering",wrong:["Boldly rebellious","Fiercely independent","Stubbornly defiant"],rarity:"epic",example:"The obsequious servant agreed with every word the queen uttered."},
+    {word:"Perfunctory",def:"Done with little effort",wrong:["Thorough and careful","Eager and diligent","Precise and exacting"],rarity:"epic",example:"He gave a perfunctory glance at the report before tossing it aside."},
+    {word:"Recalcitrant",def:"Stubbornly disobedient",wrong:["Cheerfully compliant","Quietly docile","Willingly obedient"],rarity:"epic",example:"The recalcitrant cat refused to come inside despite the freezing weather."},
+    {word:"Sycophant",def:"An insincere flatterer",wrong:["An honest critic","A fierce adversary","A loyal skeptic"],rarity:"legendary",example:"The king surrounded himself with sycophants who told him only what he wanted to hear."},
+    {word:"Truculent",def:"Aggressively defiant",wrong:["Gently agreeable","Sweetly passive","Calmly cooperative"],rarity:"legendary",example:"The truculent debater interrupted opponents and refused to yield the floor."},
+    {word:"Ubiquitous",def:"Found everywhere",wrong:["Extremely scarce","Incredibly rare","Highly uncommon"],rarity:"rare",example:"Smartphones have become ubiquitous in modern society."},
+    {word:"Vicarious",def:"Felt through another",wrong:["Experienced firsthand","Completely direct","Deeply personal"],rarity:"epic",example:"She got vicarious thrills from reading about her friend's adventures abroad."},
+    {word:"Acrimonious",def:"Bitter and sharp-toned",wrong:["Warm and cordial","Friendly and kind","Gentle and pleasant"],rarity:"legendary",example:"The acrimonious debate between the candidates left voters feeling uneasy."},
+  ],
+  5:[
+    {word:"Antediluvian",def:"Extremely old-fashioned",wrong:["Cutting-edge modern","Boldly contemporary","Radically avant-garde"],rarity:"legendary",example:"His antediluvian views on technology meant he still refused to use email."},
+    {word:"Capricious",def:"Unpredictably changeable",wrong:["Reliably steadfast","Perfectly consistent","Endlessly dependable"],rarity:"epic",example:"The capricious weather shifted from sunshine to hailstorm in minutes."},
+    {word:"Deleterious",def:"Harmful and damaging",wrong:["Helpful and healing","Healthy and wholesome","Safe and beneficial"],rarity:"legendary",example:"Pollution has deleterious effects on both wildlife and human health."},
+    {word:"Equivocate",def:"To speak evasively",wrong:["To explain clearly","To state precisely","To speak plainly"],rarity:"legendary",example:"When asked about the missing funds, the treasurer tried to equivocate."},
+    {word:"Inexorable",def:"Impossible to prevent",wrong:["Easily avoidable","Quickly preventable","Highly adaptable"],rarity:"legendary",example:"The inexorable march of time spares no one, not even kings."},
+    {word:"Loquacious",def:"Extremely talkative",wrong:["Deeply reserved","Notably brief","Unusually silent"],rarity:"epic",example:"The loquacious tour guide shared stories at every stop along the way."},
+    {word:"Ostentatious",def:"Showy and flashy",wrong:["Modest and simple","Quiet and restrained","Plain and humble"],rarity:"epic",example:"The ostentatious mansion featured golden statues and marble fountains."},
+    {word:"Perspicacious",def:"Keenly perceptive",wrong:["Remarkably obtuse","Blissfully ignorant","Woefully unaware"],rarity:"legendary",example:"The perspicacious detective noticed a detail that everyone else had missed."},
+    {word:"Surreptitious",def:"Done in secret",wrong:["Completely transparent","Boldly public","Highly conspicuous"],rarity:"legendary",example:"He made a surreptitious exit through the back door to avoid the reporters."},
+    {word:"Vituperative",def:"Harshly abusive",wrong:["Warmly complimentary","Tactfully diplomatic","Highly laudatory"],rarity:"legendary",example:"The vituperative review of the play left the actors devastated."},
+  ],
+};
+
+const GRADE_CONFIG={
+  "6":{label:"6th Grade",startDiff:1,maxDiff:3,startGold:160},
+  "7":{label:"7th Grade",startDiff:1,maxDiff:4,startGold:140},
+  "8":{label:"8th Grade",startDiff:2,maxDiff:5,startGold:120},
+  "9":{label:"9th Grade (Honors)",startDiff:2,maxDiff:5,startGold:110},
+  "10+":{label:"10th+ / SAT Prep",startDiff:3,maxDiff:5,startGold:100},
+};
+
+// ── Responsive Grid ──
+const GRID_COLS=10, GRID_ROWS=7;
+const PATH=[{x:0,y:1},{x:1,y:1},{x:2,y:1},{x:3,y:1},{x:3,y:2},{x:3,y:3},{x:4,y:3},{x:5,y:3},{x:6,y:3},{x:6,y:2},{x:6,y:1},{x:7,y:1},{x:8,y:1},{x:8,y:2},{x:8,y:3},{x:8,y:4},{x:8,y:5},{x:7,y:5},{x:6,y:5},{x:5,y:5},{x:4,y:5},{x:3,y:5},{x:2,y:5},{x:1,y:5},{x:1,y:6}];
+const isPathCell=(x,y)=>PATH.some(p=>p.x===x&&p.y===y);
+
+const TOWER_TYPES={
+  archer:{name:"Archer",emoji:"🏹",cost:50,damage:12,range:2.5,fireRate:900,upgradeCost:35,damagePerLevel:6,color:T.green,projEmoji:"➵"},
+  catapult:{name:"Catapult",emoji:"🪨",cost:100,damage:25,range:2,fireRate:2200,splashRadius:1,upgradeCost:60,damagePerLevel:12,color:T.primary,projEmoji:"💥"},
+  mage:{name:"Frost Mage",emoji:"🧙",cost:75,damage:6,range:2,fireRate:1400,slowFactor:.4,slowDuration:2500,upgradeCost:45,damagePerLevel:4,color:T.blue,projEmoji:"❄️"},
+  wizard:{name:"Lightning",emoji:"⚡",cost:150,damage:45,range:3.5,fireRate:3200,upgradeCost:80,damagePerLevel:18,color:T.purple,projEmoji:"⚡"},
+};
+
+const ENEMY_TYPES=[
+  {type:"goblin",emoji:"👺",baseHp:35,speed:1,gold:10},
+  {type:"wolf",emoji:"🐺",baseHp:20,speed:1.8,gold:15},
+  {type:"ogre",emoji:"👹",baseHp:90,speed:.5,gold:25},
+  {type:"dragon",emoji:"🐉",baseHp:250,speed:.3,gold:100},
+];
+
+const BASE_GOLD={1:30,2:40,3:55,4:75,5:100};
+const MAX_WAVES=15;
+
+const loadScores=async()=>{try{const r=await storage.get(SK);return r?JSON.parse(r.value):[]}catch{return[]}};
+const saveScore=async(n,s,w)=>{try{const sc=await loadScores();sc.push({name:n,score:s,wave:w,date:new Date().toISOString()});sc.sort((a,b)=>b.score-a.score);const t=sc.slice(0,10);await storage.set(SK,JSON.stringify(t));return t}catch{return[]}};
+const loadStudy=async()=>{try{const r=await storage.get(STK);return r?JSON.parse(r.value):[]}catch{return[]}};
+const saveStudy=async l=>{try{await storage.set(STK,JSON.stringify(l))}catch{}};
+const shuffle=a=>{const b=[...a];for(let i=b.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[b[i],b[j]]=[b[j],b[i]]}return b};
+const dist=(a,b)=>Math.sqrt((a.x-b.x)**2+(a.y-b.y)**2);
+const getEPos=e=>{const i=Math.floor(e.pp),f=e.pp-i;if(i<0)return{x:PATH[0].x-Math.abs(e.pp)*.8,y:PATH[0].y};if(i>=PATH.length-1)return PATH[PATH.length-1];const a=PATH[i],b=PATH[i+1];return{x:a.x+(b.x-a.x)*f,y:a.y+(b.y-a.y)*f}};
+
+// ── Hook: responsive cell size ──
+function useCellSize(){
+  const [cs,setCs]=useState(36);
+  useEffect(()=>{
+    const calc=()=>{
+      const vw=window.innerWidth-16; // 8px padding each side
+      const vh=window.innerHeight;
+      const maxByW=Math.floor(vw/(GRID_COLS+.5));
+      // Reserve ~220px for HUD + bottom panel on mobile
+      const gridH=vh-(vh<700?210:240);
+      const maxByH=Math.floor(gridH/(GRID_ROWS+.5));
+      setCs(Math.max(24,Math.min(maxByW,maxByH,56)));
+    };
+    calc();
+    window.addEventListener('resize',calc);
+    return()=>window.removeEventListener('resize',calc);
+  },[]);
+  return cs;
+}
+
+// ═══════════════════════════════════════════════════════════════
+function WordFortress(){
+  const CS=useCellSize();
+  const isMobile=CS<42;
+
+  const [screen,setScreen]=useState("title");
+  const [scores,setScores]=useState([]);
+  const [grade,setGrade]=useState(null);
+  const [studyList,setStudyList]=useState([]);
+  const [expandedStudy,setExpandedStudy]=useState(null);
+
+  const [phase,setPhase]=useState("planning");
+  const [gold,setGold]=useState(120);
+  const [lives,setLives]=useState(15);
+  const [wave,setWave]=useState(1);
+  const [score,setScore]=useState(0);
+  const [difficulty,setDifficulty]=useState(1);
+  const [maxDiff,setMaxDiff]=useState(5);
+  const [streak,setStreak]=useState(0);
+  const [towers,setTowers]=useState([]);
+  const [selectedTower,setSelectedTower]=useState(null);
+  const [placingType,setPlacingType]=useState(null);
+  const [question,setQuestion]=useState(null);
+  const [curWord,setCurWord]=useState(null);
+  const [qLeft,setQLeft]=useState(3);
+  const [feedback,setFeedback]=useState(null);
+  const [shaking,setShaking]=useState(false);
+  const [particles,setParticles]=useState([]);
+  const [floats,setFloats]=useState([]);
+  const [totalOk,setTotalOk]=useState(0);
+  const [totalQ,setTotalQ]=useState(0);
+  const [initials,setInitials]=useState("");
+  const [showName,setShowName]=useState(false);
+  const [result,setResult]=useState(null);
+  const [flagMsg,setFlagMsg]=useState(null);
+
+  const gR=useRef({enemies:[],towers:[],proj:[],run:false,lives:15,score:0,gold:0});
+  const [tick,setTick]=useState(0);
+  const bLoop=useRef(null);
+  const lastF=useRef(0);
+
+  useEffect(()=>{loadScores().then(setScores);loadStudy().then(setStudyList)},[]);
+
+  const genQ=useCallback(d=>{
+    const pool=VOCAB[d]||VOCAB[1];
+    const item=pool[Math.floor(Math.random()*pool.length)];
+    const opts=shuffle([item.def,...item.wrong.slice(0,3)]);
+    setCurWord(item);
+    return{word:item.word,correct:item.def,options:opts,rarity:item.rarity};
+  },[]);
+
+  const startGame=gk=>{
+    const c=GRADE_CONFIG[gk];
+    setGrade(gk);setPhase("planning");setGold(c.startGold);setLives(15);setWave(1);
+    setScore(0);setDifficulty(c.startDiff);setMaxDiff(c.maxDiff);
+    setStreak(0);setTowers([]);setSelectedTower(null);setPlacingType(null);
+    setQLeft(3);setTotalOk(0);setTotalQ(0);setResult(null);setShowName(false);setInitials("");
+    gR.current={enemies:[],towers:[],proj:[],run:false,lives:15,score:0,gold:c.startGold};
+    setQuestion(genQ(c.startDiff));
+    setScreen("game");
+  };
+
+  const flagWord=async()=>{
+    if(!curWord)return;
+    if(studyList.some(w=>w.word===curWord.word)){setFlagMsg("Already saved!");setTimeout(()=>setFlagMsg(null),1500);return}
+    const nl=[...studyList,{word:curWord.word,def:curWord.def,rarity:curWord.rarity,example:curWord.example,at:new Date().toISOString()}];
+    setStudyList(nl);await saveStudy(nl);
+    setFlagMsg("📖 Saved!");setTimeout(()=>setFlagMsg(null),1500);
+  };
+  const rmStudy=async w=>{const nl=studyList.filter(x=>x.word!==w);setStudyList(nl);await saveStudy(nl)};
+
+  const handleAns=useCallback(ok=>{
+    setTotalQ(t=>t+1);
+    if(ok){
+      setTotalOk(t=>t+1);
+      const ns=streak+1;setStreak(ns);
+      if(ns>=3&&difficulty<maxDiff){setDifficulty(d=>d+1);setStreak(0)}
+      const r=RARITY[question?.rarity||"common"];
+      const base=BASE_GOLD[difficulty];
+      const reward=Math.round((base+streak*5)*r.goldMul);
+      const pts=Math.round((reward+difficulty*10)*r.scoreMul);
+      setGold(g=>g+reward);gR.current.gold+=reward;
+      setScore(s=>s+pts);gR.current.score+=pts;
+      setFeedback({type:"ok",text:`+${reward}g  +${pts}pts  ${r.badge}`});
+      spawnP(8,r.color);addF(`+${reward}g`,T.primary);
+    }else{
+      const ns=streak-1;setStreak(ns);
+      if(ns<=-2&&difficulty>(GRADE_CONFIG[grade]?.startDiff||1)){setDifficulty(d=>d-1);setStreak(0)}
+      setFeedback({type:"no",text:`Correct: ${question?.correct}`});
+      setShaking(true);setTimeout(()=>setShaking(false),400);
+    }
+    setTimeout(()=>setFeedback(null),2500);
+    setQLeft(q=>q-1);
+  },[streak,difficulty,question,maxDiff,grade]);
+
+  const pickAns=opt=>{
+    handleAns(opt===question.correct);
+    if(qLeft>1)setTimeout(()=>setQuestion(genQ(difficulty)),700);
+    else setTimeout(()=>{setQuestion(null);setCurWord(null)},700);
+  };
+
+  const spawnP=(n,c)=>{const ps=Array.from({length:n},(_,i)=>({id:Date.now()+i,tx:(Math.random()-.5)*100,ty:(Math.random()-.5)*100,c}));setParticles(p=>[...p,...ps]);setTimeout(()=>setParticles(p=>p.filter(x=>!ps.includes(x))),700)};
+  const addF=(t,c)=>{const f={id:Date.now(),t,c};setFloats(fl=>[...fl,f]);setTimeout(()=>setFloats(fl=>fl.filter(x=>x.id!==f.id)),1200)};
+
+  const handleCell=(x,y)=>{
+    if(phase!=="planning")return;
+    if(isPathCell(x,y))return;
+    const ex=towers.find(t=>t.gp.x===x&&t.gp.y===y);
+    if(ex){setSelectedTower(ex);setPlacingType(null);return}
+    if(!placingType)return;
+    const tp=TOWER_TYPES[placingType];
+    if(gold<tp.cost)return;
+    setTowers(t=>[...t,{id:Date.now(),type:placingType,gp:{x,y},lv:1,lf:0}]);
+    setGold(g=>g-tp.cost);gR.current.gold-=tp.cost;
+    setPlacingType(null);spawnP(4,tp.color);
+  };
+  const upgTower=tw=>{
+    const tp=TOWER_TYPES[tw.type];const cost=tp.upgradeCost*tw.lv;
+    if(gold<cost||tw.lv>=5)return;
+    setGold(g=>g-cost);gR.current.gold-=cost;
+    setTowers(ts=>ts.map(t=>t.id===tw.id?{...t,lv:t.lv+1}:t));
+    setSelectedTower(null);spawnP(5,T.primary);
+  };
+  const sellTower=tw=>{
+    const tp=TOWER_TYPES[tw.type];const ref=Math.floor(tp.cost*.6);
+    setGold(g=>g+ref);gR.current.gold+=ref;
+    setTowers(ts=>ts.filter(t=>t.id!==tw.id));setSelectedTower(null);addF(`+${ref}g`,T.green);
+  };
+
+  const genWave=useCallback((wn,d)=>{
+    const cnt=Math.min(3+wn+d,22);const es=[];
+    for(let i=0;i<cnt;i++){
+      const boss=wn%5===0&&i===cnt-1;
+      const pool=boss?[ENEMY_TYPES[3]]:ENEMY_TYPES.slice(0,Math.min(d+1,3));
+      const tm=pool[Math.floor(Math.random()*pool.length)];
+      const hs=1+wn*.12+d*.06;
+      es.push({id:`e-${wn}-${i}`,...tm,hp:Math.floor(tm.baseHp*hs),mhp:Math.floor(tm.baseHp*hs),pp:-i*1,alive:true,slowed:0});
+    }return es;
+  },[]);
+
+  const startWave=()=>{
+    const es=genWave(wave,difficulty);
+    gR.current.enemies=es;gR.current.towers=towers;gR.current.proj=[];gR.current.run=true;
+    gR.current.lives=lives;gR.current.score=score;gR.current.gold=gold;
+    setPhase("battle");lastF.current=performance.now();runBattle();
+  };
+
+  const runBattle=()=>{
+    const loop=now=>{
+      const g=gR.current;if(!g.run)return;
+      const dt=Math.min(now-lastF.current,50)/1000;lastF.current=now;
+
+      g.enemies.forEach(e=>{
+        if(!e.alive)return;
+        e.pp+=e.speed*(e.slowed>now?.4:1)*dt*1.1;
+        if(e.pp>=PATH.length-1){e.alive=false;g.lives--;setLives(g.lives);if(g.lives<=0){g.run=false;endGame(false);return}}
+      });
+
+      g.towers.forEach(tw=>{
+        const tp=TOWER_TYPES[tw.type];
+        if(now-tw.lf<tp.fireRate/(1+(tw.lv-1)*.1))return;
+        const tP={x:tw.gp.x,y:tw.gp.y};
+        const rng=tp.range+(tw.lv-1)*.2;
+        let best=null,bestPP=-Infinity;
+        g.enemies.forEach(e=>{if(!e.alive)return;const ep=getEPos(e);if(dist(tP,ep)<rng&&e.pp>bestPP){best=e;bestPP=e.pp}});
+        if(best){
+          tw.lf=now;const dmg=tp.damage+(tw.lv-1)*tp.damagePerLevel;
+          if(tp.splashRadius){const tgt=getEPos(best);g.enemies.forEach(e=>{if(!e.alive)return;if(dist(tgt,getEPos(e))<tp.splashRadius)e.hp-=dmg})}
+          else best.hp-=dmg;
+          if(tp.slowFactor)best.slowed=now+(tp.slowDuration||2000);
+          const ep=getEPos(best);
+          g.proj.push({id:`p-${now}-${tw.id}`,from:{...tP},to:{...ep},emoji:tp.projEmoji,color:tp.color,born:now});
+        }
+      });
+
+      g.proj=g.proj.filter(p=>now-p.born<500);
+      g.enemies.forEach(e=>{if(e.alive&&e.hp<=0){e.alive=false;g.gold+=e.gold;g.score+=e.gold+5;setGold(g.gold);setScore(g.score)}});
+      g.enemies=g.enemies.filter(e=>e.alive||e.pp<PATH.length-1);
+      if(g.enemies.every(e=>!e.alive)){g.run=false;wave>=MAX_WAVES?endGame(true):setPhase("between");return}
+      setTick(t=>t+1);bLoop.current=requestAnimationFrame(loop);
+    };
+    bLoop.current=requestAnimationFrame(loop);
+  };
+
+  useEffect(()=>()=>{if(bLoop.current)cancelAnimationFrame(bLoop.current)},[]);
+
+  const nextWave=()=>{setWave(w=>w+1);setQLeft(3);setQuestion(genQ(difficulty));setPhase("planning");setSelectedTower(null);setPlacingType(null)};
+  const endGame=v=>{gR.current.run=false;if(bLoop.current)cancelAnimationFrame(bLoop.current);setResult(v?"win":"lose");setScreen("gameover")};
+  const submitScore=async()=>{const n=initials.toUpperCase()||"AAA";const s=await saveScore(n,score,wave);setScores(s);setShowName(false);setScreen("scores")};
+
+  // ── Shared styles ──
+  const page={minHeight:"100vh",background:`linear-gradient(180deg,${T.bg},#0d0a06)`,color:T.text,fontFamily:"'Cinzel',serif",display:"flex",flexDirection:"column"};
+  const center={display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",flex:1,padding:"16px 12px",textAlign:"center"};
+  const btn=(bg,border,color,extra={})=>({fontFamily:"'Cinzel',serif",fontWeight:700,cursor:"pointer",borderRadius:8,padding:"10px 24px",fontSize:14,background:bg,border:`1px solid ${border}`,color,...extra});
+
+  // ═══════════════ TITLE ═══════════════
+  if(screen==="title")return(
+    <div style={page}><div style={center}>
+      <div style={{fontSize:"clamp(40px,12vw,56px)",marginBottom:8,animation:"float 3s ease-in-out infinite"}}>🏰</div>
+      <h1 style={{fontSize:"clamp(24px,6vw,44px)",fontWeight:900,background:`linear-gradient(90deg,${T.primary},#f5d58e,${T.primary})`,backgroundSize:"200%",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",animation:"shimmer 4s linear infinite",marginBottom:6}}>WORD FORTRESS</h1>
+      <p style={{fontFamily:"'Crimson Text',serif",fontSize:"clamp(14px,3.5vw,18px)",color:T.textDim,maxWidth:420,lineHeight:1.5,marginBottom:28}}>
+        Defend the realm with vocabulary! Rare words earn greater rewards!
+      </p>
+      <button onClick={()=>setScreen("gradeSelect")} style={btn(`linear-gradient(180deg,${T.primary},#b8862e)`,"#f5d58e",T.bg,{fontSize:"clamp(16px,4vw,20px)",padding:"14px 40px",marginBottom:14})}>⚔️ Begin Quest</button>
+      <div style={{display:"flex",gap:10,flexWrap:"wrap",justifyContent:"center"}}>
+        <button onClick={()=>{loadScores().then(setScores);setScreen("scores")}} style={btn("transparent",T.textDim,T.textDim,{fontSize:13,padding:"8px 20px"})}>🏆 Champions</button>
+        <button onClick={()=>{loadStudy().then(setStudyList);setScreen("studyList")}} style={btn("transparent",T.blue,T.blue,{fontSize:13,padding:"8px 20px"})}>📖 Study {studyList.length>0&&`(${studyList.length})`}</button>
+      </div>
+      <div style={{marginTop:28,fontFamily:"'Crimson Text',serif",fontSize:12,color:T.textDim,maxWidth:380,lineHeight:1.6}}>
+        <b style={{color:T.primary}}>Rarity Rewards:</b> {Object.values(RARITY).map(r=><span key={r.label} style={{color:r.color,marginRight:6}}>{r.badge}×{r.scoreMul}</span>)}
+      </div>
+    </div></div>
+  );
+
+  // ═══════════════ GRADE SELECT ═══════════════
+  if(screen==="gradeSelect")return(
+    <div style={page}><div style={center}>
+      <div style={{fontSize:36,marginBottom:10}}>📜</div>
+      <h2 style={{fontSize:"clamp(20px,5vw,28px)",fontWeight:900,color:T.primary,marginBottom:6}}>Choose Your Level</h2>
+      <p style={{fontFamily:"'Crimson Text',serif",fontSize:14,color:T.textDim,maxWidth:380,marginBottom:24,lineHeight:1.5}}>Higher grades start harder with less gold.</p>
+      <div style={{display:"flex",flexDirection:"column",gap:8,width:"100%",maxWidth:340}}>
+        {Object.entries(GRADE_CONFIG).map(([k,c])=>(
+          <button key={k} onClick={()=>startGame(k)} style={{...btn(T.cardBg,`${T.primary}44`,T.text),display:"flex",justifyContent:"space-between",width:"100%",padding:"12px 16px"}}>
+            <span>{c.label}</span>
+            <span style={{fontFamily:"'Crimson Text',serif",fontSize:12,color:T.textDim}}>Tiers {c.startDiff}–{c.maxDiff} · {c.startGold}g</span>
+          </button>
+        ))}
+      </div>
+      <button onClick={()=>setScreen("title")} style={{...btn("transparent",T.textDim,T.textDim,{fontSize:13}),marginTop:20}}>← Back</button>
+    </div></div>
+  );
+
+  // ═══════════════ STUDY LIST ═══════════════
+  if(screen==="studyList")return(
+    <div style={{...page,overflow:"auto"}}>
+      <div style={{display:"flex",flexDirection:"column",alignItems:"center",padding:"24px 12px",flex:1}}>
+        <h2 style={{fontSize:"clamp(20px,5vw,28px)",fontWeight:900,color:T.blue,marginBottom:4}}>📖 Study List</h2>
+        <p style={{fontFamily:"'Crimson Text',serif",fontSize:13,color:T.textDim,marginBottom:16}}>Tap a word to expand its definition and example.</p>
+        {studyList.length===0?<div style={{padding:32,color:T.textDim,fontFamily:"'Crimson Text',serif"}}>No words flagged yet. Use 🚩 during gameplay!</div>:(
+          <div style={{width:"100%",maxWidth:480,display:"flex",flexDirection:"column",gap:6}}>
+            {studyList.map((w,i)=>{const r=RARITY[w.rarity]||RARITY.common;const exp=expandedStudy===i;return(
+              <div key={w.word} style={{background:T.cardBg,borderRadius:10,border:`1px solid ${r.color}33`,overflow:"hidden"}}>
+                <div onClick={()=>setExpandedStudy(exp?null:i)} style={{padding:"10px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                    <span style={{fontSize:13}}>{r.badge}</span>
+                    <span style={{fontWeight:700,fontSize:16}}>{w.word}</span>
+                    <span style={{fontSize:11,color:r.color,fontFamily:"'Crimson Text',serif"}}>{r.label}</span>
+                  </div>
+                  <span style={{color:T.textDim}}>{exp?"▲":"▼"}</span>
+                </div>
+                {exp&&<div style={{padding:"0 14px 14px",fontFamily:"'Crimson Text',serif",animation:"fadeIn .3s ease-out"}}>
+                  <div style={{fontSize:11,color:T.textDim,letterSpacing:1,marginBottom:2,fontFamily:"'Cinzel',serif"}}>DEFINITION</div>
+                  <div style={{fontSize:15,marginBottom:8,lineHeight:1.4}}>{w.def}</div>
+                  <div style={{fontSize:11,color:T.textDim,letterSpacing:1,marginBottom:2,fontFamily:"'Cinzel',serif"}}>EXAMPLE</div>
+                  <div style={{fontSize:14,color:T.primary,lineHeight:1.5,fontStyle:"italic",background:`${T.primary}08`,padding:"8px 10px",borderRadius:6,borderLeft:`3px solid ${T.primary}44`,marginBottom:10}}>"{w.example}"</div>
+                  <button onClick={e=>{e.stopPropagation();rmStudy(w.word);setExpandedStudy(null)}} style={btn(`${T.red}22`,`${T.red}55`,T.red,{fontSize:12,padding:"5px 14px"})}>Remove</button>
+                </div>}
+              </div>
+            )})}
+          </div>
+        )}
+        <button onClick={()=>setScreen("title")} style={{...btn(T.cardBg,`${T.primary}55`,T.text,{fontSize:13}),marginTop:20}}>← Return</button>
+      </div>
+    </div>
+  );
+
+  // ═══════════════ HIGH SCORES ═══════════════
+  if(screen==="scores")return(
+    <div style={page}><div style={{...center,justifyContent:"flex-start",paddingTop:32}}>
+      <h2 style={{fontSize:"clamp(22px,5vw,32px)",fontWeight:900,color:T.primary,marginBottom:20}}>🏆 Hall of Champions</h2>
+      <div style={{width:"100%",maxWidth:420,background:T.cardBg,borderRadius:12,border:`1px solid ${T.primary}33`,overflow:"hidden"}}>
+        {scores.length===0?<div style={{padding:28,color:T.textDim,fontFamily:"'Crimson Text',serif"}}>No champions yet!</div>:
+          scores.map((s,i)=><div key={i} style={{display:"flex",alignItems:"center",padding:"10px 16px",borderBottom:`1px solid ${T.bg}`,background:i===0?`${T.primary}11`:"transparent"}}>
+            <span style={{width:28,fontSize:16,fontWeight:700,color:i<3?T.primary:T.textDim}}>{i===0?"👑":i+1}</span>
+            <span style={{flex:1,fontWeight:700,fontSize:15}}>{s.name}</span>
+            <span style={{color:T.primary,fontWeight:700,marginRight:12}}>{s.score}</span>
+            <span style={{fontSize:12,color:T.textDim}}>W{s.wave}</span>
+          </div>)
+        }
+      </div>
+      <button onClick={()=>setScreen("title")} style={{...btn(T.cardBg,`${T.primary}55`,T.text,{fontSize:13}),marginTop:20}}>← Return</button>
+    </div></div>
+  );
+
+  // ═══════════════ GAME OVER ═══════════════
+  if(screen==="gameover"){
+    const acc=totalQ>0?Math.round(totalOk/totalQ*100):0;
+    return(
+      <div style={page}><div style={{...center,animation:"fadeIn .6s ease-out"}}>
+        <div style={{fontSize:"clamp(48px,12vw,64px)",marginBottom:8}}>{result==="win"?"🏆":"💀"}</div>
+        <h2 style={{fontSize:"clamp(22px,5vw,36px)",fontWeight:900,color:result==="win"?T.primary:T.accent,marginBottom:6}}>{result==="win"?"VICTORY!":"FORTRESS FELL"}</h2>
+        <div style={{background:T.cardBg,borderRadius:12,padding:"16px 20px",width:"100%",maxWidth:320,border:`1px solid ${T.primary}33`,marginBottom:20,fontFamily:"'Crimson Text',serif",fontSize:14}}>
+          {[["Score",score,T.primary],["Waves",`${wave}/${MAX_WAVES}`],["Accuracy",`${acc}%`,acc>=70?T.green:T.accent],["Difficulty","⭐".repeat(difficulty)],["Studied",studyList.length,T.blue]].map(([l,v,c],i)=>
+            <div key={i} style={{display:"flex",justifyContent:"space-between",marginBottom:i<4?8:0}}><span style={{color:T.textDim}}>{l}</span><span style={{fontWeight:700,color:c||T.text}}>{v}</span></div>
+          )}
+        </div>
+        {!showName?<div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center"}}>
+          <button onClick={()=>setShowName(true)} style={btn(`linear-gradient(180deg,${T.primary},#b8862e)`,"#f5d58e",T.bg,{fontSize:14})}>🏆 Save</button>
+          <button onClick={()=>setScreen("gradeSelect")} style={btn(T.cardBg,`${T.primary}55`,T.text,{fontSize:14})}>⚔️ Retry</button>
+          <button onClick={()=>{loadStudy().then(setStudyList);setScreen("studyList")}} style={btn(`${T.blue}22`,T.blue,T.blue,{fontSize:14})}>📖 Study</button>
+          <button onClick={()=>setScreen("title")} style={btn("transparent",T.textDim,T.textDim,{fontSize:13})}>Menu</button>
+        </div>:
+        <div style={{display:"flex",gap:10,alignItems:"center"}}>
+          <input value={initials} onChange={e=>setInitials(e.target.value.slice(0,3))} placeholder="AAA" maxLength={3}
+            style={{width:72,textAlign:"center",padding:8,fontSize:20,fontFamily:"'Cinzel',serif",fontWeight:700,background:T.cardBg,border:`2px solid ${T.primary}`,borderRadius:8,color:T.primary,textTransform:"uppercase",letterSpacing:3}}/>
+          <button onClick={submitScore} style={btn(T.primary,"transparent",T.bg,{fontSize:14})}>Submit</button>
+        </div>}
+      </div></div>
+    );
+  }
+
+  // ═══════════════ GAME SCREEN ═══════════════
+  const enemies=gR.current.enemies||[];
+  const proj=gR.current.proj||[];
+  const boss=wave%5===0;
+  const curR=question?RARITY[question.rarity]:null;
+  const GAP=1;
+
+  return(
+    <div style={{...page,overflow:"hidden",userSelect:"none"}}>
+      {/* HUD */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"6px 10px",background:T.cardBg,borderBottom:`2px solid ${T.primary}33`,flexWrap:"wrap",gap:4,fontSize:isMobile?11:13,minHeight:36}}>
+        <div style={{display:"flex",gap:isMobile?8:14,alignItems:"center"}}>
+          <span>💰<b style={{color:T.primary}}>{gold}</b></span>
+          <span>❤️<b style={{color:lives<=3?T.accent:T.text}}>{lives}</b></span>
+          <span>🎯<b>{score}</b></span>
+        </div>
+        <div style={{fontWeight:700}}>⚔️ {wave}/{MAX_WAVES}</div>
+        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+          <span style={{color:T.primary,fontSize:isMobile?10:13}}>{"⭐".repeat(difficulty)}</span>
+          {streak>0&&<span style={{color:T.green,fontWeight:700,animation:"pulse .3s ease-out",fontSize:isMobile?10:13}}>🔥{streak}</span>}
+        </div>
+      </div>
+
+      {boss&&phase==="planning"&&<div style={{textAlign:"center",padding:"4px 0",background:`${T.accent}22`,color:T.accent,fontWeight:700,fontSize:isMobile?11:14,animation:"bossWarn 1s infinite",letterSpacing:1}}>⚠️ BOSS WAVE — 🐉 DRAGON ⚠️</div>}
+
+      {/* GRID */}
+      <div style={{flex:1,display:"flex",justifyContent:"center",alignItems:"center",padding:4,position:"relative",animation:shaking?"shake .4s ease-in-out":"none",overflow:"hidden"}}>
+        {floats.map(f=><div key={f.id} style={{position:"absolute",top:"30%",left:"50%",fontWeight:900,fontSize:isMobile?16:20,color:f.c,animation:"floatUp 1.2s ease-out forwards",pointerEvents:"none",zIndex:50}}>{f.t}</div>)}
+        {particles.map(p=><div key={p.id} style={{position:"absolute",top:"50%",left:"50%",width:5,height:5,borderRadius:"50%",background:p.c,"--tx":`${p.tx}px`,"--ty":`${p.ty}px`,animation:"particle .6s ease-out forwards",pointerEvents:"none",zIndex:50}}/>)}
+
+        <div style={{display:"grid",gridTemplateColumns:`repeat(${GRID_COLS},${CS}px)`,gridTemplateRows:`repeat(${GRID_ROWS},${CS}px)`,gap:GAP,background:`${T.primary}11`,borderRadius:6,overflow:"hidden",position:"relative",border:`1px solid ${T.primary}22`}}>
+          {Array.from({length:GRID_ROWS},(_,y)=>Array.from({length:GRID_COLS},(_,x)=>{
+            const onP=isPathCell(x,y);const tw=towers.find(t=>t.gp.x===x&&t.gp.y===y);
+            const isSel=selectedTower&&selectedTower.id===tw?.id;
+            const canPl=phase==="planning"&&!onP&&!tw&&placingType;
+            const fs=Math.max(12,CS*.42);
+            return(
+              <div key={`${x}-${y}`} onClick={()=>handleCell(x,y)}
+                style={{width:CS,height:CS,display:"flex",alignItems:"center",justifyContent:"center",fontSize:fs,
+                  background:onP?T.pathBg:isSel?`${T.primary}33`:T.cellBg,
+                  cursor:canPl||tw?"pointer":"default",position:"relative",
+                  border:isSel?`2px solid ${T.primary}`:"none",
+                  WebkitTapHighlightColor:"transparent"}}
+                onTouchStart={canPl?e=>e.currentTarget.style.background=T.cellHover:undefined}
+                onTouchEnd={canPl?e=>e.currentTarget.style.background=T.cellBg:undefined}>
+                {onP&&!tw&&<span style={{fontSize:Math.max(6,CS*.15),color:`${T.textDim}44`}}>·</span>}
+                {tw&&<div style={{textAlign:"center",lineHeight:1}}>
+                  <div style={{fontSize:fs}}>{TOWER_TYPES[tw.type].emoji}</div>
+                  {tw.lv>1&&<div style={{fontSize:Math.max(6,CS*.14),color:T.primary,fontWeight:700}}>Lv{tw.lv}</div>}
+                </div>}
+              </div>
+            );
+          }))}
+
+          {/* Enemies */}
+          {enemies.filter(e=>e.alive).map(e=>{const pos=getEPos(e);const ef=Math.max(12,CS*.4);return(
+            <div key={e.id} style={{position:"absolute",left:pos.x*(CS+GAP)+CS/2-ef*.55,top:pos.y*(CS+GAP)+CS/2-ef*.7,fontSize:ef,zIndex:20,transition:"left .08s linear,top .08s linear",pointerEvents:"none"}}>
+              {e.emoji}
+              <div style={{position:"absolute",top:-5,left:-1,width:CS*.55,height:3,background:"#333",borderRadius:2,overflow:"hidden"}}>
+                <div style={{width:`${Math.max(0,e.hp/e.mhp*100)}%`,height:"100%",background:e.hp/e.mhp>.5?T.green:T.accent,transition:"width .2s"}}/>
+              </div>
+              {e.slowed>performance.now()&&<span style={{position:"absolute",top:-8,right:-6,fontSize:Math.max(8,ef*.4)}}>❄️</span>}
+            </div>
+          )})}
+
+          {/* Projectiles */}
+          {proj.map(p=>{const dx=(p.to.x-p.from.x)*(CS+GAP);const dy=(p.to.y-p.from.y)*(CS+GAP);return(
+            <div key={p.id} style={{position:"absolute",left:p.from.x*(CS+GAP)+CS/2-CS*.2,top:p.from.y*(CS+GAP)+CS/2-CS*.2,
+              fontSize:Math.max(14,CS*.38),zIndex:35,animation:"projFly .45s ease-in forwards",pointerEvents:"none",
+              "--dx":`${dx}px`,"--dy":`${dy}px`,filter:`drop-shadow(0 0 6px ${p.color})`,textShadow:`0 0 8px ${p.color}`}}>
+              {p.emoji}
+            </div>
+          )})}
+        </div>
+      </div>
+
+      {/* BOTTOM PANEL */}
+      <div style={{background:T.cardBg,borderTop:`2px solid ${T.primary}33`,padding:isMobile?"6px 8px":"8px 12px",maxHeight:phase==="planning"?"50vh":"auto",overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
+
+        {/* Tower Shop */}
+        {phase==="planning"&&<div style={{marginBottom:6}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4,marginBottom:4}}>
+            {Object.entries(TOWER_TYPES).map(([k,t])=>(
+              <button key={k} onClick={()=>{setPlacingType(k);setSelectedTower(null)}}
+                style={{padding:isMobile?"6px 2px":"6px 8px",fontFamily:"'Crimson Text',serif",fontSize:isMobile?10:12,
+                  background:placingType===k?`${t.color}33`:T.bg,border:`1px solid ${placingType===k?t.color:`${T.textDim}44`}`,
+                  borderRadius:6,color:gold>=t.cost?T.text:T.textDim,cursor:gold>=t.cost?"pointer":"not-allowed",opacity:gold>=t.cost?1:.5,
+                  display:"flex",flexDirection:"column",alignItems:"center",gap:2,lineHeight:1.2}}>
+                <span style={{fontSize:isMobile?16:18}}>{t.emoji}</span>
+                <span style={{fontSize:isMobile?9:11}}>{t.name}</span>
+                <span style={{color:T.primary,fontSize:isMobile?9:11}}>{t.cost}g</span>
+              </button>
+            ))}
+          </div>
+          {selectedTower&&<div style={{display:"flex",gap:6,justifyContent:"center",alignItems:"center",marginBottom:4,fontFamily:"'Crimson Text',serif",fontSize:isMobile?11:13,flexWrap:"wrap"}}>
+            <span>{TOWER_TYPES[selectedTower.type].emoji} {TOWER_TYPES[selectedTower.type].name} Lv{selectedTower.lv}</span>
+            {selectedTower.lv<5&&<button onClick={()=>upgTower(selectedTower)} style={btn(`${T.green}22`,T.green,T.green,{fontSize:11,padding:"4px 10px"})}>⬆ {TOWER_TYPES[selectedTower.type].upgradeCost*selectedTower.lv}g</button>}
+            <button onClick={()=>sellTower(selectedTower)} style={btn(`${T.accent}22`,T.accent,T.accent,{fontSize:11,padding:"4px 10px"})}>Sell {Math.floor(TOWER_TYPES[selectedTower.type].cost*.6)}g</button>
+          </div>}
+        </div>}
+
+        {/* Questions */}
+        {phase==="planning"&&question&&qLeft>0&&<div style={{textAlign:"center"}}>
+          {curR&&<div style={{display:"flex",justifyContent:"center",alignItems:"center",gap:6,marginBottom:3}}>
+            <span style={{fontSize:10,fontFamily:"'Crimson Text',serif",color:T.textDim}}>Q{4-qLeft}/3</span>
+            <span style={{fontSize:11,fontFamily:"'Crimson Text',serif",color:curR.color,fontWeight:700,padding:"1px 8px",borderRadius:10,background:`${curR.color}18`,border:`1px solid ${curR.color}33`}}>{curR.badge} {curR.label} ×{curR.scoreMul}</span>
+          </div>}
+          <div style={{display:"flex",justifyContent:"center",alignItems:"center",gap:8,marginBottom:6}}>
+            <span style={{fontSize:"clamp(16px,4vw,24px)",fontWeight:900,color:T.primary}}>{question.word}</span>
+            <button onClick={flagWord} style={{fontFamily:"'Cinzel',serif",padding:"3px 6px",fontSize:13,background:"transparent",border:`1px solid ${T.blue}55`,borderRadius:6,color:T.blue,cursor:"pointer",lineHeight:1,animation:flagMsg?"flagPop .3s ease-out":"none"}}>🚩</button>
+          </div>
+          {flagMsg&&<div style={{fontSize:11,color:T.blue,marginBottom:3,fontFamily:"'Crimson Text',serif"}}>{flagMsg}</div>}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,maxWidth:460,margin:"0 auto"}}>
+            {question.options.map((o,i)=>(
+              <button key={i} onClick={()=>pickAns(o)}
+                style={{padding:isMobile?"8px 6px":"10px 12px",fontFamily:"'Crimson Text',serif",fontSize:isMobile?12:14,
+                  background:T.bg,border:`1px solid ${T.primary}44`,borderRadius:8,color:T.text,cursor:"pointer",textAlign:"center",
+                  lineHeight:1.3,minHeight:isMobile?40:44,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                {o}
+              </button>
+            ))}
+          </div>
+        </div>}
+
+        {/* Start wave */}
+        {phase==="planning"&&(!question||qLeft<=0)&&<div style={{textAlign:"center",padding:"4px 0"}}>
+          {feedback&&<div style={{color:feedback.type==="ok"?T.green:T.accent,fontFamily:"'Crimson Text',serif",fontSize:13,marginBottom:6}}>{feedback.type==="ok"?"✓ ":"✗ "}{feedback.text}</div>}
+          <button onClick={startWave} style={btn(`linear-gradient(180deg,${T.accent},#8b1a1a)`,T.accent,T.text,{fontSize:isMobile?14:16,letterSpacing:1,padding:"10px 32px"})}>⚔️ Launch Wave {wave}</button>
+        </div>}
+
+        {phase==="planning"&&question&&qLeft>0&&feedback&&<div style={{textAlign:"center",marginTop:4,fontFamily:"'Crimson Text',serif",fontSize:12,fontWeight:600,color:feedback.type==="ok"?T.green:T.accent}}>{feedback.type==="ok"?"✓ ":"✗ "}{feedback.text}</div>}
+
+        {phase==="battle"&&<div style={{textAlign:"center",fontFamily:"'Crimson Text',serif",color:T.textDim,fontSize:isMobile?13:15,padding:"4px 0"}}>⚔️ {enemies.filter(e=>e.alive).length} enemies remaining</div>}
+
+        {phase==="between"&&<div style={{textAlign:"center",padding:"4px 0"}}>
+          <div style={{color:T.green,fontWeight:700,fontSize:isMobile?15:18,marginBottom:6}}>✓ Wave {wave} cleared!</div>
+          <button onClick={nextWave} style={btn(`linear-gradient(180deg,${T.primary},#b8862e)`,"#f5d58e",T.bg,{fontSize:isMobile?14:15})}>Wave {wave+1} →</button>
+        </div>}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(WordFortress));
+</script>
+</body>
+</html>
